@@ -1,10 +1,12 @@
 from HSP import HSP
 from copy import copy
+import networkx as nx
 
 
 def validate_input(args):
     MIN_INPUT = 4
-    ERROR_MESSAGE = "Input cmd should be with format:  [path_to_substitution_matrix] [path_to_seq_file_1] [path_to_seq_file_2] .... [path_to_seq_file_N]" \
+    ERROR_MESSAGE = "Input cmd should be with format:  [path_to_substitution_matrix] [path_to_seq_file_1] [" \
+                    "path_to_seq_file_2] .... [path_to_seq_file_N]" \
                     "\nFor example try run: " \
                     "python pairwise.py sub_mat.txt A.fasta B.fasta C.fasta"
     if len(args) < MIN_INPUT:
@@ -46,41 +48,28 @@ def get_alphabet(matrix):
     return alphabet
 
 
-def load_matrix(matrix_filename):
-    with open(matrix_filename) as matrix_file:
-        matrix = matrix_file.read()
-    lines = matrix.strip().split('\n')
+def read_alphabet(path):
+    alphabet = ''
+    with open(path) as f:
+        chars = f.readline().strip().split()
+    for char in chars:
+        alphabet += char
 
-    header = lines.pop(0)
-    columns = header.split()
-    matrix = {}
-
-    for row in lines:
-        entries = row.split()
-        row_name = entries.pop(0)
-        matrix[row_name] = {}
-
-        if len(entries) != len(columns):
-            raise Exception('Improper entry number in row')
-        for column_name in columns:
-            matrix[row_name][column_name] = entries.pop(0)
-
-    return matrix
+    return alphabet
 
 
-def blossomise_matrix(matrix):
-    bloss_matrix = {}
-    for line in matrix:
-        for val in matrix[line]:
-            bloss_matrix[line, val] = int(matrix[line][val])
-    return bloss_matrix
+def read_scoring_matrix(path):
+    scoring_matrix = {}
 
+    with open(path) as f:
+        chars = f.readline().strip().split()
+        for line in f:
+            ch1, *scores = line.strip().split()
 
-def gen_sub_matrix_and_alphabet(matrix_filename):
-    sub_mat = load_matrix(matrix_filename)
-    alphabet = get_alphabet(sub_mat)
-    bloss_matrix = blossomise_matrix(sub_mat)
-    return bloss_matrix, alphabet
+            for i, score in enumerate(scores):
+                scoring_matrix[(ch1, chars[i])] = int(score)
+
+    return scoring_matrix
 
 
 def build_db(db, k):
@@ -119,8 +108,9 @@ def find_neighbors_rec(kmer, neighbor, pos, curr_score, alphabet, neighbors, sco
         curr_score = curr_score - align(kmer[pos], kmer[pos], scoring_matrix)
         for letter in alphabet:
             curr_score = curr_score + align(kmer[pos], letter, scoring_matrix)
-            if curr_score >= T: find_neighbors_rec(kmer, neighbor[:pos] + letter, pos + 1, curr_score, alphabet,
-                                                   neighbors, scoring_matrix, T)
+            if curr_score >= T:
+                find_neighbors_rec(kmer, neighbor[:pos] + letter, pos + 1, curr_score, alphabet,
+                                   neighbors, scoring_matrix, T)
 
             curr_score = curr_score - align(kmer[pos], letter, scoring_matrix)
 
@@ -146,7 +136,6 @@ def get_hsps(query, db_dict, k, scoring_matrix, alphabet, T):
 def extend_left(query, db, hsp, scoring_matrix, X):
     """returns the left extension with the maximal score"""
     msp = copy(hsp)
-    i = 0
     max_score = msp.score
     cur_score = msp.score
     query_mark = msp.seq1_start
@@ -168,7 +157,6 @@ def extend_right(query, db, hsp, scoring_matrix, X):
     """returns the right extension with the maximal score"""
 
     msp = copy(hsp)
-    i = 0
     max_score = msp.score
     cur_score = msp.score
     query_mark = msp.seq1_end
@@ -205,9 +193,68 @@ def get_top_score(pairs_msps):
     return top_scores
 
 
-def gen_output_file(pairs_msps):
+def gen_output_file(pairs_score):
     output_file = open("scores.txt", "w")
-    for pair, top_msp in pairs_msps.items():
-        output_line = f"{pair[0]}\t{pair[1]}\t{top_msp[0].score}\n"
+    for pair, score in pairs_score.items():
+        output_line = f"{pair[0]}\t{pair[1]}\t{score}\n"
         output_file.write(output_line)
     output_file.close()
+
+
+def gen_empty_graphs_for_seqs(pairs):
+    seqs_graphs = {}
+    for pair in pairs:
+        seqs_graphs[pair] = nx.DiGraph()
+
+    return seqs_graphs
+
+
+def to_add_edge(msp_i_seq1_end, msp_i_seq2_end, msp_j_seq1_start, msp_j_seq2_start):
+    return msp_i_seq1_end < msp_j_seq1_start and msp_i_seq2_end < msp_j_seq2_start
+
+
+def gen_weight(msp_i, msp_j):
+    return msp_i.score #- 4 * (abs(msp_i.seq1_end - msp_j.seq1_start) + abs(msp_i.seq2_end - msp_j.seq2_start))
+
+
+def add_edges_and_nodes(seqs_graphs, pairs_msps):
+    for pair_seqs, msps in pairs_msps.items():
+        for i, msp_i in enumerate(msps):
+            for j, msp_j in enumerate(msps):
+                if not msp_i.__eq__(msp_j):
+                    if to_add_edge(msp_i.seq1_end, msp_i.seq2_end, msp_j.seq1_start, msp_j.seq2_start):
+                        seqs_graphs[pair_seqs].add_edge(msp_i, msp_j,
+                                                        weight=gen_weight(msp_i, msp_j))
+
+
+def add_start_node_and_target_node(seqs_graphs, seqs_dict):
+    for pair, graph in seqs_graphs.items():
+        start_node = HSP(0, 0, 0, 0, 0)
+        target_node = HSP(len(seqs_dict[pair[0]]), len(seqs_dict[pair[0]]), len(seqs_dict[pair[1]]),
+                          len(seqs_dict[pair[1]]), 0)
+        graph.add_node(start_node)
+        graph.add_node(target_node)
+        for node in graph.nodes:
+            graph.add_edge(start_node, node, weight=0)
+            graph.add_edge(node, target_node, weight=0)
+
+
+def gen_graphs(pairs_msps, seqs_dict):
+    seqs_graphs = gen_empty_graphs_for_seqs(pairs_msps.keys())
+    add_edges_and_nodes(seqs_graphs, pairs_msps)
+    #add_start_node_and_target_node(seqs_graphs, seqs_dict)
+
+    return seqs_graphs
+
+
+def runDAG(pairs_graphs):
+    seqs_scores = {}
+    for pair, graph in pairs_graphs.items():
+        DAG_path = nx.dag_longest_path(graph, weight='weight')
+        score = 0
+        for hsp in DAG_path:
+            score += hsp.score
+
+        seqs_scores[pair] = score
+
+    return seqs_scores

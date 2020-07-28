@@ -1,12 +1,15 @@
 import sys
 import utils
-
-from HSP import HSP
+from datetime import datetime
 
 # constants
 k = 4
-T = 23
+T = 15
 X = 8
+R = 25500  # we ignore the outer diagonals of the average lengths of the seqs top 15% as abs(i - j) - keep only the
+
+
+# 85% in the middle
 
 
 def find_hsps_of_seq(k, T, sub_matrix, seq1, seq2, alphabet):
@@ -27,26 +30,39 @@ def find_hsps_all_seqs(k, T, sub_matrix, seqs_dict, alphabet):
 
 def extend_hsps_to_msps(pairs_hsps, sub_matrix, seqs_dict, X):
     pairs_msps = {}
+    pairs_diagonals = {}
     for seqs_ids, hsps in pairs_hsps.items():
         pairs_msps[seqs_ids] = set()
         for hsp in hsps:
-            msp = utils.extend_hsp(seqs_dict[seqs_ids[0]],
-                                   seqs_dict[seqs_ids[1]],
-                                   hsp, sub_matrix, X)
-            pairs_msps[seqs_ids].add(msp)
+            if hsp.diagonal() not in pairs_diagonals.keys() or hsp.seq1_start > pairs_diagonals[hsp.diagonal()] \
+                    and abs(hsp.diagonal()) < R:
+                msp = utils.extend_hsp(seqs_dict[seqs_ids[0]],
+                                       seqs_dict[seqs_ids[1]],
+                                       hsp, sub_matrix, X)
+                pairs_diagonals[hsp.diagonal()] = msp.seq1_end
+                pairs_msps[seqs_ids].add(msp)
+
     return pairs_msps
 
 
 def main():
+    start_time = datetime.now()
+
     args = sys.argv
     utils.validate_input(args)
-    sub_matrix_file_name, seqs_names = utils.split_input(args)
-    sub_matrix, alphabet = utils.gen_sub_matrix_and_alphabet(sub_matrix_file_name)
-    seqs_dict = utils.get_seqs(seqs_names)
+    sub_matrix_path, seqs_paths = utils.split_input(args)
+    sub_matrix = utils.read_scoring_matrix(sub_matrix_path)
+    alphabet = utils.read_alphabet(sub_matrix_path)
+    seqs_dict = utils.get_seqs(seqs_paths)
     pairs_hsps = find_hsps_all_seqs(k, T, sub_matrix, seqs_dict, alphabet)
     pairs_msps = extend_hsps_to_msps(pairs_hsps, sub_matrix, seqs_dict, X)
-    pairs_top_msp = utils.get_top_score(pairs_msps)
-    utils.gen_output_file(pairs_top_msp)
+
+    pairs_graphs = utils.gen_graphs(pairs_msps, seqs_dict)
+    pairs_scores = utils.runDAG(pairs_graphs)
+    utils.gen_output_file(pairs_scores)
+
+    timedelta = datetime.now() - start_time
+    print(timedelta)
 
 
 if __name__ == '__main__':

@@ -26,10 +26,13 @@ class HSP:
 
     def __str__(self):
         return (
-                f'Score: {self.score}\n'
-                f'Seq1: [{self.seq1_start}, {self.seq1_end}]\n'
-                f'Seq2: [{self.seq2_start}, {self.seq2_end}]\n'
-                )
+            f'Score: {self.score}\n'
+            f'Seq1: [{self.seq1_start}, {self.seq1_end}]\n'
+            f'Seq2: [{self.seq2_start}, {self.seq2_end}]\n'
+        )
 
     def __repr__(self):
         return self.__str__()
+
+    def diagonal(self):
+        return self.seq1_start - self.seq2_start
