@@ -1,6 +1,8 @@
+import sys
+import networkx as nx
+
 from HSP import HSP
 from copy import copy
-import networkx as nx
 
 
 def validate_input(args):
@@ -181,18 +183,6 @@ def extend_hsp(query, db, hsp, scoring_matrix, X):
     return msp
 
 
-def get_top_msps(msps, top):
-    sorted_msps = sorted(list(msps), reverse=True, key=lambda msp: msp.score)
-    return sorted_msps[:top]
-
-
-def get_top_score(pairs_msps):
-    top_scores = {}
-    for pair in pairs_msps:
-        top_scores[pair] = get_top_msps(pairs_msps[pair], 1)
-    return top_scores
-
-
 def gen_output_file(pairs_score):
     output_file = open("scores.txt", "w")
     for pair, score in pairs_score.items():
@@ -210,39 +200,39 @@ def gen_empty_graphs_for_seqs(pairs):
 
 
 def to_add_edge(msp_i_seq1_end, msp_i_seq2_end, msp_j_seq1_start, msp_j_seq2_start):
-    return msp_i_seq1_end < msp_j_seq1_start and msp_i_seq2_end < msp_j_seq2_start
+    return msp_i_seq1_end <= msp_j_seq1_start and msp_i_seq2_end <= msp_j_seq2_start
 
 
-def gen_weight(msp_i, msp_j):
-    return msp_i.score #- 4 * (abs(msp_i.seq1_end - msp_j.seq1_start) + abs(msp_i.seq2_end - msp_j.seq2_start))
-
-
-def add_edges_and_nodes(seqs_graphs, pairs_msps):
+def add_edges(seqs_graphs, pairs_msps):
     for pair_seqs, msps in pairs_msps.items():
         for i, msp_i in enumerate(msps):
             for j, msp_j in enumerate(msps):
                 if not msp_i.__eq__(msp_j):
                     if to_add_edge(msp_i.seq1_end, msp_i.seq2_end, msp_j.seq1_start, msp_j.seq2_start):
                         seqs_graphs[pair_seqs].add_edge(msp_i, msp_j,
-                                                        weight=gen_weight(msp_i, msp_j))
+                                                        weight=msp_i.score)
 
 
-def add_start_node_and_target_node(seqs_graphs, seqs_dict):
-    for pair, graph in seqs_graphs.items():
-        start_node = HSP(0, 0, 0, 0, 0)
-        target_node = HSP(len(seqs_dict[pair[0]]), len(seqs_dict[pair[0]]), len(seqs_dict[pair[1]]),
-                          len(seqs_dict[pair[1]]), 0)
-        graph.add_node(start_node)
-        graph.add_node(target_node)
+def add_sink_node_to_graphs(seqs_graphs):
+    for graph in seqs_graphs.values():
+        sink = HSP(sys.maxsize, sys.maxsize, sys.maxsize, sys.maxsize, -1)
+        graph.add_node(sink)
         for node in graph.nodes:
-            graph.add_edge(start_node, node, weight=0)
-            graph.add_edge(node, target_node, weight=0)
+            if not node.__eq__(sink):
+                graph.add_edge(node, sink, weight=node.score)
 
 
-def gen_graphs(pairs_msps, seqs_dict):
+def add_nodes(seqs_graphs, pairs_msps):
+    for seqs_pair, graph in seqs_graphs.items():
+        for msp in pairs_msps[seqs_pair]:
+            graph.add_node(msp)
+
+
+def gen_graphs(pairs_msps):
     seqs_graphs = gen_empty_graphs_for_seqs(pairs_msps.keys())
-    add_edges_and_nodes(seqs_graphs, pairs_msps)
-    #add_start_node_and_target_node(seqs_graphs, seqs_dict)
+    add_nodes(seqs_graphs, pairs_msps)
+    add_edges(seqs_graphs, pairs_msps)
+    add_sink_node_to_graphs(seqs_graphs)
 
     return seqs_graphs
 
@@ -258,3 +248,8 @@ def runDAG(pairs_graphs):
         seqs_scores[pair] = score
 
     return seqs_scores
+
+
+def print_pairs_msps_count(pairs_msps):
+    for pair, msps in pairs_msps.items():
+        print(pair, '\t', len(msps))
