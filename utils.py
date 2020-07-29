@@ -4,6 +4,8 @@ import networkx as nx
 from HSP import HSP
 from copy import copy
 
+R = 25500
+
 
 def validate_input(args):
     MIN_INPUT = 4
@@ -183,73 +185,71 @@ def extend_hsp(query, db, hsp, scoring_matrix, X):
     return msp
 
 
-def gen_output_file(pairs_score):
-    output_file = open("scores.txt", "w")
-    for pair, score in pairs_score.items():
-        output_line = f"{pair[0]}\t{pair[1]}\t{score}\n"
-        output_file.write(output_line)
-    output_file.close()
-
-
-def gen_empty_graphs_for_seqs(pairs):
-    seqs_graphs = {}
-    for pair in pairs:
-        seqs_graphs[pair] = nx.DiGraph()
-
-    return seqs_graphs
-
-
 def to_add_edge(msp_i_seq1_end, msp_i_seq2_end, msp_j_seq1_start, msp_j_seq2_start):
     return msp_i_seq1_end <= msp_j_seq1_start and msp_i_seq2_end <= msp_j_seq2_start
 
 
-def add_edges(seqs_graphs, pairs_msps):
-    for pair_seqs, msps in pairs_msps.items():
-        for i, msp_i in enumerate(msps):
-            for j, msp_j in enumerate(msps):
-                if not msp_i.__eq__(msp_j):
-                    if to_add_edge(msp_i.seq1_end, msp_i.seq2_end, msp_j.seq1_start, msp_j.seq2_start):
-                        seqs_graphs[pair_seqs].add_edge(msp_i, msp_j,
-                                                        weight=msp_i.score)
+def add_edges(graph, msps):
+    for msp_i in msps:
+        for msp_j in msps:
+            if not msp_i.__eq__(msp_j):
+                if to_add_edge(msp_i.seq1_end, msp_i.seq2_end, msp_j.seq1_start, msp_j.seq2_start):
+                    graph.add_edge(msp_i, msp_j, weight=msp_i.score)
 
 
-def add_sink_node_to_graphs(seqs_graphs):
-    for graph in seqs_graphs.values():
-        sink = HSP(sys.maxsize, sys.maxsize, sys.maxsize, sys.maxsize, -1)
-        graph.add_node(sink)
-        for node in graph.nodes:
-            if not node.__eq__(sink):
-                graph.add_edge(node, sink, weight=node.score)
+def add_sink_node_to_graph(graph):
+    sink = HSP(sys.maxsize, sys.maxsize, sys.maxsize, sys.maxsize, -1)
+    graph.add_node(sink)
+    for node in graph.nodes:
+        if not node.__eq__(sink):
+            graph.add_edge(node, sink, weight=node.score)
 
 
-def add_nodes(seqs_graphs, pairs_msps):
-    for seqs_pair, graph in seqs_graphs.items():
-        for msp in pairs_msps[seqs_pair]:
-            graph.add_node(msp)
+def add_nodes(graph, msps):
+    for msp in msps:
+        graph.add_node(msp)
 
 
-def gen_graphs(pairs_msps):
-    seqs_graphs = gen_empty_graphs_for_seqs(pairs_msps.keys())
-    add_nodes(seqs_graphs, pairs_msps)
-    add_edges(seqs_graphs, pairs_msps)
-    add_sink_node_to_graphs(seqs_graphs)
+def runDAG(graph):
+    score = 0
+    DAG_path = nx.dag_longest_path(graph, weight='weight')
+    for hsp in DAG_path:
+        score += hsp.score
 
-    return seqs_graphs
-
-
-def runDAG(pairs_graphs):
-    seqs_scores = {}
-    for pair, graph in pairs_graphs.items():
-        DAG_path = nx.dag_longest_path(graph, weight='weight')
-        score = 0
-        for hsp in DAG_path:
-            score += hsp.score
-
-        seqs_scores[pair] = score
-
-    return seqs_scores
+    return score
 
 
-def print_pairs_msps_count(pairs_msps):
-    for pair, msps in pairs_msps.items():
-        print(pair, '\t', len(msps))
+def find_hsps(k, T, sub_matrix, seq1, seq2, alphabet):
+    db_dict = build_db(seq2, k)
+    return get_hsps(seq1, db_dict, k, sub_matrix, alphabet, T)
+
+
+def extend_hsps_to_msps(hsps, sub_matrix, seq1, seq2, X):
+    msps = []
+    diagonals_msp = {}
+    i = 0
+    for hsp in hsps:
+        i += 1
+        if hsp.diagonal() not in diagonals_msp or (
+                hsp.seq1_start > diagonals_msp[hsp.diagonal()].seq1_end and abs(hsp.diagonal()) < R):
+            msp = extend_hsp(seq1, seq2, hsp, sub_matrix, X)
+            diagonals_msp[hsp.diagonal()] = msp
+            if not msps.__contains__(msp):
+                msps.append(msp)
+    return msps
+
+
+def gen_graph(msps):
+    graph = nx.DiGraph()
+    add_nodes(graph, msps)
+    add_edges(graph, msps)
+    add_sink_node_to_graph(graph)
+
+    return graph
+
+
+def update_output_file(id1, id2, score):
+    output_file = open("scores.txt", "a+")
+    output_line = f"{id1}\t{id2}\t{score}\n"
+    output_file.write(output_line)
+    output_file.close()
