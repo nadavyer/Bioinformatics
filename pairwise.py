@@ -3,11 +3,9 @@ import utils
 from datetime import datetime
 
 # constants
-k = 10
-T = 50
-X = 50
-  # we ignore the outer diagonals of the average lengths of the seqs top 15% as abs(i - j) - keep only the
-           # 85% in the middle
+k = 4
+T = 10
+X = 10
 
 
 def main():

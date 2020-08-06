@@ -4,6 +4,8 @@ import networkx as nx
 from HSP import HSP
 from copy import copy
 
+"""we ignore the outer diagonals of the average lengths of the seqs top 15% as abs(i - j) - keep only the 85% in the 
+middle """
 R = 25500
 
 
@@ -253,3 +255,49 @@ def update_output_file(id1, id2, score):
     output_line = f"{id1}\t{id2}\t{score}\n"
     output_file.write(output_line)
     output_file.close()
+
+
+def extract_from_scores_file(scores_path):
+    pairs_score = {}
+    with open(scores_path) as f:
+        for line in f:
+            line_args = line.strip('\n').split('\t')
+            pairs_score[line_args[0], line_args[1]] = line_args[2]
+
+    return pairs_score
+
+
+def gen_matrix_from_pair_ids_and_value(path):
+    last_left_col_name = ''
+    seqs_ids = []
+    row = []
+    matrix = []
+    not_first = False
+    need_to_add_name = True
+
+    with open(path) as f:
+        for line in f:
+            splited = line.strip('\n').split('\t')
+            name = splited[0]
+            if not name == last_left_col_name:
+                last_left_col_name = name
+                if need_to_add_name and not seqs_ids.__contains__(splited[1]):
+                    row.append(0)
+                    seqs_ids.append(name)
+                if not_first:
+                    row.reverse()
+                    matrix.append(row)
+                    row = [0]
+                    need_to_add_name = False
+                not_first = True
+            if need_to_add_name and not seqs_ids.__contains__(splited[1]):
+                seqs_ids.append(splited[1])
+            row.append(int(splited[2]))
+        row.reverse()
+        matrix.append(row)
+        matrix.append([0])
+
+        matrix.reverse()
+        seqs_ids.reverse()
+
+        return matrix, seqs_ids
